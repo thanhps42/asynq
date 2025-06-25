@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/hibiken/asynq"
+	"github.com/thanhps42/asynq"
 )
 
 // keyEventHandler handles keyboard events and updates the state.

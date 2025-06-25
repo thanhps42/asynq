@@ -4,7 +4,7 @@ about: Suggest an idea for this project
 title: "[FEATURE REQUEST] Description of the feature request"
 labels: enhancement
 assignees:
-  - hibiken
+  - thanhps42
   - kamikazechaser
 
 ---

@@ -4,7 +4,7 @@ about: Create a report to help us improve
 title: "[BUG] Description of the bug"
 labels: bug
 assignees:
-  - hibiken
+  - thanhps42
   - kamikazechaser
   
 ---
