@@ -419,6 +419,54 @@ func (c *Client) EnqueueContext(ctx context.Context, task *Task, opts ...Option)
 	return newTaskInfo(msg, state, opt.processAt, nil), nil
 }
 
+func (c *Client) GetRDB() *rdb.RDB {
+	return c.broker.(*rdb.RDB)
+}
+
+func (c *Client) CreateTaskMessage(task *Task, opts ...Option) (*base.TaskMessage, error) {
+	if task == nil {
+		return nil, fmt.Errorf("task cannot be nil")
+	}
+	if strings.TrimSpace(task.Type()) == "" {
+		return nil, fmt.Errorf("task typename cannot be empty")
+	}
+	// merge task options with the options provided at enqueue time.
+	opts = append(task.opts, opts...)
+	opt, err := composeOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	deadline := noDeadline
+	if !opt.deadline.IsZero() {
+		deadline = opt.deadline
+	}
+	timeout := noTimeout
+	if opt.timeout != 0 {
+		timeout = opt.timeout
+	}
+	if deadline.Equal(noDeadline) && timeout == noTimeout {
+		// If neither deadline nor timeout are set, use default timeout.
+		timeout = defaultTimeout
+	}
+	var uniqueKey string
+	if opt.uniqueTTL > 0 {
+		uniqueKey = base.UniqueKey(opt.queue, task.Type(), task.Payload())
+	}
+	msg := &base.TaskMessage{
+		ID:        opt.taskID,
+		Type:      task.Type(),
+		Payload:   task.Payload(),
+		Queue:     opt.queue,
+		Retry:     opt.retry,
+		Deadline:  deadline.Unix(),
+		Timeout:   int64(timeout.Seconds()),
+		UniqueKey: uniqueKey,
+		GroupKey:  opt.group,
+		Retention: int64(opt.retention.Seconds()),
+	}
+	return msg, nil
+}
+
 // Ping performs a ping against the redis connection.
 func (c *Client) Ping() error {
 	return c.broker.Ping()

@@ -82,6 +82,18 @@ func (r *RDB) runScriptWithErrorCode(ctx context.Context, op errors.Op, script *
 	return n, nil
 }
 
+func (r *RDB) runScriptWithErrorCodeUsingPipeline(ctx context.Context, pipe redis.Pipeliner, op errors.Op, script *redis.Script, keys []string, args ...interface{}) (int64, error) {
+	res, err := script.Run(ctx, pipe, keys, args...).Result()
+	if err != nil {
+		return 0, errors.E(op, errors.Unknown, fmt.Sprintf("redis eval error: %v", err))
+	}
+	n, ok := res.(int64)
+	if !ok {
+		return 0, errors.E(op, errors.Internal, fmt.Sprintf("unexpected return value from Lua script: %v", res))
+	}
+	return n, nil
+}
+
 // enqueueCmd enqueues a given task message.
 //
 // Input:
@@ -130,6 +142,37 @@ func (r *RDB) Enqueue(ctx context.Context, msg *base.TaskMessage) error {
 		r.clock.Now().UnixNano(),
 	}
 	n, err := r.runScriptWithErrorCode(ctx, op, enqueueCmd, keys, argv...)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errors.E(op, errors.AlreadyExists, errors.ErrTaskIdConflict)
+	}
+	return nil
+}
+
+func (r *RDB) EnqueueUsingPipeline(ctx context.Context, msg *base.TaskMessage, pipe redis.Pipeliner) error {
+	var op errors.Op = "rdb.Enqueue"
+	encoded, err := base.EncodeMessage(msg)
+	if err != nil {
+		return errors.E(op, errors.Unknown, fmt.Sprintf("cannot encode message: %v", err))
+	}
+	if _, found := r.queuesPublished.Load(msg.Queue); !found {
+		if err := pipe.SAdd(ctx, base.AllQueues, msg.Queue).Err(); err != nil {
+			return errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sadd", Err: err})
+		}
+		r.queuesPublished.Store(msg.Queue, true)
+	}
+	keys := []string{
+		base.TaskKey(msg.Queue, msg.ID),
+		base.PendingKey(msg.Queue),
+	}
+	argv := []interface{}{
+		encoded,
+		msg.ID,
+		r.clock.Now().UnixNano(),
+	}
+	n, err := r.runScriptWithErrorCodeUsingPipeline(ctx, pipe, op, enqueueCmd, keys, argv...)
 	if err != nil {
 		return err
 	}
